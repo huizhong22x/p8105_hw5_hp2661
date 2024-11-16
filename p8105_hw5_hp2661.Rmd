@@ -2,7 +2,7 @@
 title: "p8105_hw5_hp2661"
 author: "Huizhong Peng"
 date: "2024-11-15"
-output: html_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
