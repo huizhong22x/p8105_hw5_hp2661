@@ -1,0 +1,262 @@
+---
+title: "Iteration"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(rvest)
+library(ggplot2)
+
+options(scipen = 999)
+
+knitr::opts_chunk$set(
+        collapse = TRUE, 
+        message = FALSE, 
+        warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+  )
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+### Problem 1
+
+```{r}
+set.seed(123)
+
+# function
+sim_birthday = function(n){
+  birthdays = sample(1:365, n, replace = TRUE)
+  
+  return(length(unique(birthdays)) < n)
+}
+
+# 10000 times
+sim_birthday_df = 
+  expand.grid(
+    sample_size = 2:50,
+    iter = 1:10000
+  ) |> 
+  mutate(
+    estimate_df = map(sample_size, sim_birthday)
+  ) |> 
+  unnest(estimate_df)
+
+prob_df = 
+  sim_birthday_df |> 
+  group_by(sample_size) |> 
+  summarize(
+    prob = mean(estimate_df)
+  )
+
+# plot
+ggplot(prob_df, aes(x = sample_size, y = prob)) +
+  geom_point() +
+  geom_line() +
+  labs(
+    title = "Probabilty of sharing a Birthday and Group Size",
+    x = "Group size",
+    y = "Probability"
+  )
+```
+
+There is a positive association between the probability that at least two people in the group will share a birthday and the group size.
+
+### Problem 2
+
+```{r}
+set.seed(123)
+
+# calculate power
+my_power = function(mu_0, n = 30, sigma = 5) {
+  x = rnorm(n, mean = mu_0, sd = sigma)
+
+  t_result = t.test(x, mu = 0) |> broom::tidy()
+  
+  tibble(
+    estimate = t_result$estimate,
+    p_value = t_result$p.value
+  )
+}
+
+# for mu list
+sim_powers_df = function(mu_list, iteration = 5000){
+  expand_grid(
+    mu = mu_list,
+    iter = 1:iteration
+  ) |> 
+  mutate(
+    estimate_df = map(mu, my_power)
+  ) |> 
+  unnest(estimate_df)
+}
+
+# result
+mu_list = 0:6
+sim_results_df = sim_powers_df(mu_list)
+
+sim_results_plot = sim_results_df |> 
+  mutate(
+    rej = ifelse(p_value < .05, 1, 0)
+  )
+```
+
+```{r}
+sim_results_plot1 = sim_results_plot |> 
+  group_by(mu) |> 
+  summarize(
+    rej_rate = mean(rej),
+    avg_estimate = mean(estimate),
+    avg_estimate_rej = mean(estimate[rej == 1])
+  ) |> 
+  filter(mu != 0)
+
+# plot 1
+plot1 = 
+  ggplot(sim_results_plot1, aes(x = mu, y = rej_rate)) +
+  geom_line(size = 1) +
+  geom_point() +
+  labs(
+    title = "Association Between Power of the T-Test And Effect Size",
+    x = "True value of μ",
+    y = "Proportion of rejections (Power)"
+  )
+
+plot1
+```
+
+Plot 1 suggests that the proportion of times the null was rejected increases with increasing effect size. They are positive associated and the power is equal to 1 after $ \mu = 5$.
+
+```{r}
+# plot 2
+plot2 = 
+  ggplot(sim_results_plot1, aes(x = mu)) +
+  geom_line(aes(y = avg_estimate, color = "Estimate Overall"), size = 1) +
+  geom_point(aes(y = avg_estimate, color = "Estimate Overall")) +
+  geom_line(aes(y = avg_estimate_rej, color = "Estimate for Rejected Tests"), size = 1) +
+  geom_point(aes(y = avg_estimate_rej, color = "Estimate for Rejected Tests")) +
+  scale_color_manual(
+    values = c("Estimate Overall" = "blue", "Estimate for Rejected Tests" = "red")
+  ) +
+  labs(
+    title = "Average Estimate of μ overall and for Tests with Rejection Only",
+    x = "True value of μ",
+    y = "Average Estimate of μ"
+  ) +
+  theme(legend.title = element_blank())
+
+plot2
+```
+
+Plot 2 suggests that the sample average of $ \hat{\mu} $ across tests with rejection and the true value of $ \mu $ are not equal, because the sample mean is significantly different from 0 in the null hypothesis, and then the p-value < .05.
+
+```{r}
+write.csv(sim_results_plot, "data/p2_sim_results.csv", row.names = FALSE)
+ggsave("data/plot1.png", plot = plot1)
+ggsave("data/plot2.png", plot = plot2)
+```
+
+
+### Problem 3
+
+```{r}
+url = "https://raw.githubusercontent.com/washingtonpost/data-homicides/refs/heads/master/homicide-data.csv"
+raw_dat = read_csv(url, na = c("Unknown", ""))
+
+skimr::skim(raw_dat)
+```
+
+There are `r nrow(raw_dat)` observations and `r ncol(raw_dat)` variables in the dataset, including 8 character variables (e.g., city, state, disposition) and 4 numeric variables (e.g., victim_age, lat). 
+
+```{r}
+dat = raw_dat |> 
+  janitor::clean_names() |> 
+  mutate(
+    city_state = paste(city, state, sep = ", ")
+  )
+
+summary = dat |> 
+  group_by(city_state) |> 
+  summarize(
+    homicides = n(),
+    homicides_unsolved = sum(disposition %in% c("Closed without arrest", "Open/No arrest"), na.rm = TRUE)
+  )
+
+summary
+```
+
+```{r}
+# Baltimore, MD
+baltimore_summary = summary |> 
+  filter(city_state == "Baltimore, MD")
+
+baltimore_test =
+  prop.test(
+  x = baltimore_summary |> pull(homicides_unsolved),
+  n = baltimore_summary |> pull(homicides)
+)
+
+baltimore_results = broom::tidy(baltimore_test)
+baltimore_estimates = baltimore_results |> 
+  select(estimate, conf.low, conf.high)
+
+baltimore_estimates
+```
+
+```{r}
+# Each city
+summary_nest = nest(summary, data = homicides:homicides_unsolved)
+
+my_prop_test = function(df) {
+  test_result = prop.test(x = df$homicides_unsolved, n = df$homicides)
+  test_result = test_result |> 
+    broom::tidy() |> 
+    select(estimate, conf.low, conf.high)
+} 
+
+city_summary = summary_nest |> 
+  mutate(
+    results = map(data, my_prop_test)
+  ) |> 
+  unnest()
+
+city_summary
+```
+
+```{r}
+plot3 = 
+  ggplot(city_summary, aes(x = fct_reorder(city_state, estimate), y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
+  labs(
+    title = "Proportion of Unsolved Homicides by City",
+    x = "City",
+    y = "Proportion"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1)
+  )
+
+plot3
+```
+
+```{r}
+write.csv(summary, "data/homicide_summary.csv", row.names = FALSE)
+ggsave("data/plot3.png", plot = plot3)
+```
+

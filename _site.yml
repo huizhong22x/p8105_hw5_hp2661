@@ -1,0 +1,18 @@
+name: "Yay internet!"
+output_dir: "."
+navbar:
+  title: "Home"
+  right:
+    - text: "Academic"
+      href: academic.html
+    - text: "Courses"
+      menu:
+      - text: "Data Science"
+        href: ds1.html
+    - icon: fa-envelope fa-lg
+      href: mailto:<huizhong22x@gmail.com>
+    - icon: fa-github fa-lg
+      href: http://github.com/huizhong22x/
+output:
+  html_document:
+    theme: flatly
